@@ -4,22 +4,14 @@
 
 ## 功能特性
 
-- 🤖 **智能解析**: 自动解析PRD文档，提取模块、功能和流程信息
-- 📋 **规则生成**: 基于需求和原则生成Walkthrough Rule
-- 🧪 **用例生成**: 自动生成符合数据库规范的结构化测试用例
-- 🔄 **多模型支持**: 支持Doubao（豆包）和G2M模型，可自动切换
-- 📊 **多格式输出**: 支持JSONL、Markdown等多种输出格式
-- 🎯 **优先级智能**: 自动分配用例优先级和等级
+ 本系统基于以下架构文档实现（单一增强版CLI：`cli/main.py`）：
+ - `arch-solution/agent_requirement.md` - Agent需求规范
+ - `arch-solution/model+requirement-doubao.md` - Doubao模型接口
+ - `arch-solution/model+requirement-g2m.md` - G2M模型接口
+ - `arch-solution/db+requirement.md` - 数据库设计规范
+ - `arch-solution/walkthrough_rule_spec.md` - Walkthrough Rule规范
+ - `metric/识人识物_用例设计原则与示例.md` - 用例设计原则（PRD示例）
 
-## 架构说明
-
-本系统基于以下架构文档实现：
-- `arch-solution/agent_requirement.md` - Agent需求规范
-- `arch-solution/model+requirement-doubao.md` - Doubao模型接口
-- `arch-solution/model+requirement-g2m.md` - G2M模型接口
-- `arch-solution/db+requirement.md` - 数据库设计规范
-- `arch-solution/walkthrough_rule_spec.md` - Walkthrough Rule规范
-- `metric/识人识物_用例设计原则与示例.md` - 用例设计原则（PRD示例）
 
 ## 目录结构
 
@@ -39,7 +31,7 @@ vita-qaagent/
 │       ├── logger.py      # 日志配置
 │       └── file_utils.py  # 文件操作
 ├── cli/                   # CLI命令行工具
-│   └── main.py           # 主入口
+│   └── main.py           # 增强版单入口（多PRD、URL、materialize）
 ├── tests/                 # 测试代码
 │   ├── unit/             # 单元测试
 │   └── integration/      # 集成测试
@@ -97,22 +89,24 @@ G2M_API_KEY=your_g2m_key_here
 
 > ⚠️ **重要**: 请勿将真实的API Key提交到版本控制系统！
 
-### 3. 运行示例
-
-使用识人识物PRD生成测试用例：
+### 3. 运行示例（支持多PRD/URL，默认materialize）
 
 ```bash
 python cli/main.py generate \
   --prd metric/识人识物_用例设计原则与示例.md \
   --project recognition \
   --output outputs \
+  --merge-prds \
+  --materialize \
   --verbose
 ```
 
 查看输出：
+ 生成完成后，会在输出目录生成以下文件：
 
+ ### 1. 测试用例JSONL (`testcases/项目名_testcases_时间戳.jsonl`)
 ```bash
-# 查看生成的测试用例
+# 查看生成的测试用例（含 db_* / es_docs_*）
 ls outputs/testcases/
 
 # 查看生成的规则
@@ -125,6 +119,8 @@ ls outputs/reports/
 ### 4. 运行测试
 
 ```bash
+ 5. **DB/ES实体JSONL** - `db_testcases_*`、`db_scenes_*`、`db_scene_mappings_*`、`db_relations_*`、`es_docs_*`
+ 6. **Markdown报告** - 人类可读总结
 # 运行所有测试
 pytest tests/ -v
 
@@ -143,25 +139,22 @@ pytest tests/ --cov=src --cov-report=html
 ### 基本命令
 
 ```bash
-# 查看帮助
 python cli/main.py --help
-
-# 查看版本
-python cli/main.py version
-
-# 生成测试用例
-python cli/main.py generate --prd <PRD文件路径> [选项]
+python cli/main.py generate --help
 ```
 
 ### 命令参数
 
 | 参数 | 简写 | 必填 | 说明 | 示例 |
 |------|------|------|------|------|
-| `--prd` | `-p` | ✓ | PRD文档路径（Markdown格式） | `metric/识人识物_用例设计原则与示例.md` |
-| `--project` | - | - | 项目名称（默认使用文件名） | `recognition` |
+| `--prd` | `-p` | ✓ | PRD文档路径或URL，可多次传入 | `--prd a.md --prd https://x/prd.md` |
+| `--project` | - | - | 项目名称（默认首个PRD名） | `recognition` |
 | `--output` | `-o` | - | 输出目录（默认：outputs） | `outputs` |
-| `--metric` | `-m` | - | Metric文档路径（可选） | `metric/模块分类.md` |
-| `--principles` | - | - | 用例拆解原则文档路径（可选） | `docs/principles.md` |
+| `--metric` | `-m` | - | Metric文档路径或URL（可选） | `metric/模块分类.md` |
+| `--principles` | - | - | 拆解原则路径或URL（可选） | `docs/principles.md` |
+| `--prompts-config` | - | - | 自定义提示词配置文件 | `config/prompts.yaml` |
+| `--merge-prds/--no-merge-prds` | - | - | 多PRD是否合并（默认合并） | `--no-merge-prds` |
+| `--materialize/--no-materialize` | - | - | 是否落盘DB/ES实体及文本 | `--materialize` |
 | `--provider` | - | - | 模型提供商（auto/doubao/g2m，默认：auto） | `doubao` |
 | `--save-rule` | - | - | 是否保存生成的规则（默认：True） | - |
 | `--verbose` | `-v` | - | 详细输出 | - |
@@ -245,7 +238,11 @@ python cli/main.py generate \
 
 生成的测试用例生成规则，可复用于同类项目。
 
-### 5. Markdown报告 (`reports/项目名_summary_时间戳.md`)
+### 5. DB/ES实体JSONL (`db_testcases_*`、`db_scenes_*`、`db_scene_mappings_*`、`db_relations_*`、`es_docs_*`)
+
+实体化后的关系库行与ES文档，便于直接入库/索引。
+
+### 6. Markdown报告 (`reports/项目名_summary_时间戳.md`)
 
 人类可读的测试用例汇总报告。
 

@@ -11,15 +11,15 @@ pip install -r requirements.txt
 API Key已预配置在 `config/.env`：
 - ARK_API_KEY=ae3d2401-a6ac-481f-a958-673b17d7b38c
 
-## 3. 运行示例
-
-### 示例1: 使用识人识物PRD生成测试用例
+## 3. 运行示例（单入口 main.py，默认 materialize）
 
 ```bash
 python cli/main.py generate \
   --prd metric/识人识物_用例设计原则与示例.md \
   --project recognition \
   --output outputs \
+  --merge-prds \
+  --materialize \
   --verbose
 ```
 
@@ -30,7 +30,16 @@ python cli/main.py --help
 python cli/main.py generate --help
 ```
 
-### 示例3: 运行测试
+### 示例3: 多PRD+自定义prompts
+
+```bash
+python cli/main.py generate \
+  --prd prd/a.md --prd prd/b.md \
+  --prompts-config config/prompts.yaml \
+  --no-merge-prds
+```
+
+### 示例4: 运行测试
 
 ```bash
 # 运行所有测试
@@ -48,8 +57,8 @@ pytest tests/integration/ -v
 生成完成后，查看输出文件：
 
 ```bash
-# 测试用例JSONL（可导入数据库）
-cat outputs/testcases/recognition_testcases_*.jsonl
+# 测试用例JSONL（含 db_* / es_docs_*）
+ls outputs/testcases/
 
 # Walkthrough Rule
 cat outputs/rules/recognition_rule_*.json
@@ -80,7 +89,7 @@ vita-qaagent/
 ✓ **用例生成**: 自动生成测试用例
 ✓ **多模型**: 支持Doubao（优先）和G2M
 ✓ **多格式**: JSONL、JSON、Markdown输出
-✓ **数据库对齐**: 完全符合DB schema
+✓ **数据库/ES对齐**: 提供 db_* 与 es_docs_* 实体化输出
 
 ## 7. 常见问题
 

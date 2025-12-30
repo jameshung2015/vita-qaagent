@@ -4,7 +4,7 @@
 - **项目名称**: VITA QA Agent - 自动化测试用例生成系统
 - **开发时间**: 2025-12-30
 - **分支**: claude/develop-qa-agent-3X613
-- **状态**: ✅ 已完成并推送
+- **状态**: ✅ 已完成并推送（单一增强版CLI）
 
 ## 实施概况
 
@@ -49,13 +49,11 @@
 - 支持auto/doubao/g2m模式
 
 #### 3. CLI工具
-✅ **主命令行** (`cli/main.py`)
-- Typer框架
-- Rich美化输出
-- 多种参数支持
-- 详细进度提示
+✅ **主命令行** (`cli/main.py`，多PRD/URL/merge/materialize)
+- Typer框架，Rich进度
+- 支持自定义prompts、merge-prds、materialize（DB/ES落盘）
 
-#### 4. 工具函数
+#### 4. 工具函数与实体化
 ✅ **日志系统** (`src/utils/logger.py`)
 - 分级日志
 - 文件和控制台输出
@@ -63,6 +61,10 @@
 ✅ **文件操作** (`src/utils/file_utils.py`)
 - Markdown/JSON/JSONL读写
 - 文件名生成工具
+
+✅ **实体化与模型** (`src/entities/*`)
+- Pydantic实体对齐关系表/ES索引
+- materializer将生成结果落盘文本+DB/ES JSONL
 
 #### 5. 测试覆盖
 ✅ **单元测试**
@@ -74,7 +76,7 @@
 - 端到端流程验证
 - 完整pipeline测试
 
-### 📁 项目结构
+### 📁 项目结构（单入口CLI）
 
 ```
 vita-qaagent/
@@ -92,7 +94,7 @@ vita-qaagent/
 │       ├── logger.py           # 日志
 │       └── file_utils.py       # 文件操作
 ├── cli/                         # CLI工具
-│   └── main.py                 # 主入口
+│   └── main.py                 # 增强版单入口
 ├── tests/                       # 测试
 │   ├── unit/                   # 单元测试
 │   └── integration/            # 集成测试
@@ -137,19 +139,11 @@ vita-qaagent/
 ### 💾 输出格式
 
 1. **测试用例JSONL** - 可直接导入数据库
-   - 符合test_case表结构
-   - 包含完整字段信息
-
 2. **场景JSONL** - 场景定义
-   - 符合case_scene表结构
-
 3. **场景映射JSONL** - 用例与场景关系
-   - 符合case_scene_mapping表结构
-
 4. **Walkthrough Rule JSON** - 规则定义
-   - 可复用于同类项目
-
-5. **Markdown报告** - 人类可读总结
+5. **DB/ES实体JSONL** - `db_testcases_*`、`db_scenes_*`、`db_scene_mappings_*`、`db_relations_*`、`es_docs_*`
+6. **Markdown报告** - 人类可读总结
 
 ### 🚀 使用方式
 
@@ -161,9 +155,11 @@ pip install -r requirements.txt
 #### 运行
 ```bash
 python cli/main.py generate \
-  --prd metric/识人识物_用例设计原则与示例.md \
-  --project recognition \
-  --verbose
+   --prd metric/识人识物_用例设计原则与示例.md \
+   --project recognition \
+   --merge-prds \
+   --materialize \
+   --verbose
 ```
 
 #### 测试
@@ -174,11 +170,11 @@ pytest tests/ -v
 ### ✨ 核心亮点
 
 1. **智能化**: 基于大模型的智能解析和生成
-2. **标准化**: 完全符合数据库schema
-3. **灵活性**: 支持多模型、多格式
-4. **易用性**: 友好的CLI界面
+2. **标准化**: 完全符合数据库schema与ES索引
+3. **灵活性**: 支持多模型、多格式，materialize直落DB/ES
+4. **易用性**: 友好的CLI界面与进度提示
 5. **可扩展**: 模块化设计，易于扩展
-6. **可测试**: 完整的测试覆盖
+6. **可测试**: 完整的测试覆盖（17个用例）
 
 ### 📝 配置信息
 

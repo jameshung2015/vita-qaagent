@@ -7,7 +7,7 @@ VITA QA Agent 采用分层架构设计，从底层模型客户端到上层CLI工
 ```
 ┌─────────────────────────────────────────────────────────┐
 │                   CLI Layer (用户接口层)                 │
-│  cli/main.py (v1) | cli/main_v2.py (v2增强版)          │
+│  cli/main.py (单入口，支持多PRD/URL/merge/materialize)  │
 └─────────────────────────────────────────────────────────┘
                           ↓
 ┌─────────────────────────────────────────────────────────┐
@@ -22,13 +22,20 @@ VITA QA Agent 采用分层架构设计，从底层模型客户端到上层CLI工
 └─────────────────────────────────────────────────────────┘
                           ↓
 ┌─────────────────────────────────────────────────────────┐
+│          Data Entities & Materialize Layer (数据实体)     │
+│  Pydantic实体: TestCase / CaseScene / SceneMapping /    │
+│  CaseRelation / TestCaseIndexDocument; materializer将     │
+│  生成结果落盘steps/expected文本并产出DB/ES JSONL         │
+└─────────────────────────────────────────────────────────┘
+                          ↓
+┌─────────────────────────────────────────────────────────┐
 │                 Utils Layer (工具层)                     │
 │  ErrorHandler | ConfigLoader | FileLoader | Logger      │
 └─────────────────────────────────────────────────────────┘
                           ↓
 ┌─────────────────────────────────────────────────────────┐
 │              External Services (外部服务)                │
-│    Doubao API | G2M API | File System | Remote URLs    │
+│  Doubao API | G2M API | File System | Remote URLs | ES  │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -39,8 +46,7 @@ VITA QA Agent 采用分层架构设计，从底层模型客户端到上层CLI工
 **职责**: 提供命令行接口，处理用户输入，协调各组件工作
 
 **组件**:
-- `cli/main.py`: 基础版CLI
-- `cli/main_v2.py`: 增强版CLI (v0.2.0+)
+- `cli/main.py`: 增强版CLI (v0.2.0+, 单入口)
 
 **特性**:
 - 参数解析和验证
@@ -99,6 +105,19 @@ VITA QA Agent 采用分层架构设计，从底层模型客户端到上层CLI工
 - 指数退避策略
 - 超时检测
 - 详细错误日志
+
+### 4. Data Entities & Materialize Layer (数据实体与落盘)
+
+**职责**: 将生成结果对齐关系型表与ES索引，落盘文本供路径存储，并产出可直接入库/索引的JSONL。
+
+**组件**:
+- `src/entities/db_models.py`: TestCase / CaseScene / CaseSceneMapping / CaseRelation / TestCaseIndexDocument 枚举与时间格式化
+- `src/entities/materializer.py`: 写入 steps/expected/scene 文本文件；构造 DB/ES Pydantic 实体；输出 db_* 与 es_docs_* JSONL
+
+**ES 支撑能力**:
+- 字段映射对齐 `arch-solution/db+requirement.md` 中的 `test_case_index`（keyword/text + ik_max_word/ik_smart，BM25）
+- 支持 steps/expected/title 全文检索与相似度；scene_ids/scene_names 精准/模糊过滤
+- 文档ID与关系库 `case_id` 对齐，便于增量同步与删除
 
 ### 4. Utils Layer (工具层)
 

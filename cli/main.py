@@ -1,14 +1,19 @@
 #!/usr/bin/env python3
 """
-VITA QA Agent CLI - Test Case Generation Tool
+VITA QA Agent CLI - Enhanced Test Case Generation Tool (v2 consolidated)
 
-主命令行入口，支持从PRD自动生成测试用例
+特性:
+- 支持多个PRD文件输入
+- 支持URI (本地路径或HTTP URL)
+- 可配置的LLM提示词
+- 增强的错误处理
+- 支持实体化为DB/ES对象
 """
 
 import os
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
 from dotenv import load_dotenv
 
 import typer
@@ -23,16 +28,19 @@ from src.models.model_factory import get_default_client
 from src.agents.requirement_parser import RequirementParser
 from src.agents.rule_generator import RuleGenerator
 from src.agents.testcase_generator import TestCaseGenerator
+from src.entities import MaterializedBundle, materialize_generation_outputs
 from src.utils.logger import setup_logger
 from src.utils.file_utils import (
-    read_markdown_file,
     write_json_file,
     write_jsonl_file,
     write_markdown_file,
     generate_output_filename,
 )
+from src.utils.file_loader import load_multiple_prds, load_content_from_uri, merge_prd_contents
+from src.utils.config_loader import get_config_loader
+from src.utils.exceptions import QAAgentError, FileOperationError, ConfigurationError
 
-app = typer.Typer(help="VITA QA Agent - 自动化测试用例生成工具")
+app = typer.Typer(help="VITA QA Agent - 自动化测试用例生成工具 (v2 consolidated)")
 console = Console()
 
 
@@ -48,20 +56,33 @@ def load_env():
 
 @app.command()
 def generate(
-    prd: str = typer.Option(..., "--prd", "-p", help="PRD文档路径 (Markdown格式)"),
+    prd: List[str] = typer.Option(..., "--prd", "-p", help="PRD文档路径或URL (支持多个，可重复使用 --prd)"),
     output_dir: str = typer.Option("outputs", "--output", "-o", help="输出目录"),
     project_name: Optional[str] = typer.Option(None, "--project", help="项目名称"),
-    metric: Optional[str] = typer.Option(None, "--metric", "-m", help="Metric文档路径 (可选)"),
-    principles: Optional[str] = typer.Option(None, "--principles", help="用例拆解原则文档路径 (可选)"),
+    metric: Optional[str] = typer.Option(None, "--metric", "-m", help="Metric文档路径或URL (可选)"),
+    principles: Optional[str] = typer.Option(None, "--principles", help="用例拆解原则文档路径或URL (可选)"),
+    prompts_config: Optional[str] = typer.Option(None, "--prompts-config", help="自定义提示词配置文件路径"),
     model_provider: str = typer.Option("auto", "--provider", help="模型提供商 (auto/doubao/g2m)"),
     save_rule: bool = typer.Option(True, "--save-rule", help="是否保存生成的walkthrough rule"),
+    merge_prds: bool = typer.Option(True, "--merge-prds", help="是否合并多个PRD为单一文档"),
+    materialize: bool = typer.Option(True, "--materialize/--no-materialize", help="是否将输出实体化为DB/ES对象并落盘"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="详细输出"),
 ):
     """
-    从PRD文档生成测试用例
+    从PRD文档生成测试用例 (支持多文件和URI输入)
 
     示例:
-        python cli/main.py generate --prd metric/识人识物_用例设计原则与示例.md --project recognition
+        # 单个本地文件
+        python cli/main.py generate --prd metric/识人识物_用例设计原则与示例.md
+
+        # 多个本地文件
+        python cli/main.py generate --prd prd1.md --prd prd2.md --project multi_module
+
+        # 从URL加载
+        python cli/main.py generate --prd https://example.com/prd.md --project remote
+
+        # 混合本地和远程
+        python cli/main.py generate --prd local.md --prd https://example.com/remote.md
     """
     # Load environment
     load_env()
@@ -70,37 +91,74 @@ def generate(
     log_level = "DEBUG" if verbose else "INFO"
     logger = setup_logger(level=log_level)
 
-    console.print("\n[bold cyan]VITA QA Agent - 测试用例生成[/bold cyan]\n")
+    console.print("\n[bold cyan]VITA QA Agent - 增强版测试用例生成[/bold cyan]\n")
 
     try:
-        # Step 1: Read input files
+        # Load custom prompts config if provided
+        if prompts_config:
+            try:
+                config_loader = get_config_loader(Path(prompts_config).parent)
+                console.print(f"[green]✓[/green] 使用自定义提示词配置: {prompts_config}")
+            except Exception as e:
+                console.print(f"[yellow]![/yellow] 无法加载自定义配置，使用默认配置: {e}")
+
+        # Step 1: Load PRD files (support multiple and URI)
         with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}")) as progress:
-            task = progress.add_task("读取PRD文档...", total=None)
+            task = progress.add_task(f"加载 {len(prd)} 个PRD文档...", total=None)
 
-            prd_content = read_markdown_file(prd)
+            try:
+                prds = load_multiple_prds(prd)
+            except FileOperationError as e:
+                console.print(f"\n[bold red]✗ 加载PRD失败: {e}[/bold red]")
+                raise typer.Exit(code=1)
 
-            # Get project name from file if not provided
+            # Get project name from first PRD if not provided
             if not project_name:
-                project_name = Path(prd).stem
+                project_name = prds[0]["name"]
 
+            # Load metric if provided
             metric_content = None
             if metric:
-                progress.update(task, description="读取Metric文档...")
-                metric_content = read_markdown_file(metric)
+                progress.update(task, description="加载Metric文档...")
+                try:
+                    metric_content = load_content_from_uri(metric)
+                except FileOperationError as e:
+                    console.print(f"[yellow]![/yellow] 无法加载Metric文档: {e}")
 
+            # Load principles if provided
             principles_content = None
             if principles:
-                progress.update(task, description="读取拆解原则...")
-                principles_content = read_markdown_file(principles)
+                progress.update(task, description="加载拆解原则...")
+                try:
+                    principles_content = load_content_from_uri(principles)
+                except FileOperationError as e:
+                    console.print(f"[yellow]![/yellow] 无法加载拆解原则: {e}")
 
-        console.print(f"[green]✓[/green] PRD文档读取完成: {prd}")
+        # Display loaded PRDs
+        console.print(f"\n[green]✓[/green] 成功加载 {len(prds)} 个PRD文档:")
+        for i, prd_info in enumerate(prds, 1):
+            console.print(f"  {i}. {prd_info['name']} ({prd_info['uri']})")
+
         if metric:
-            console.print(f"[green]✓[/green] Metric文档读取完成: {metric}")
+            console.print(f"[green]✓[/green] Metric文档已加载")
+        if principles:
+            console.print(f"[green]✓[/green] 拆解原则已加载")
+
+        # Merge PRDs if needed
+        if len(prds) > 1 and merge_prds:
+            console.print(f"\n[bold]合并 {len(prds)} 个PRD文档...[/bold]")
+            prd_content = merge_prd_contents(prds)
+        else:
+            prd_content = prds[0]["content"]
 
         # Step 2: Initialize model client
         console.print(f"\n[bold]初始化模型客户端 ({model_provider})...[/bold]")
-        model_client = get_default_client()
-        console.print(f"[green]✓[/green] 模型客户端初始化完成")
+        try:
+            model_client = get_default_client()
+            console.print(f"[green]✓[/green] 模型客户端初始化完成")
+        except Exception as e:
+            console.print(f"\n[bold red]✗ 模型客户端初始化失败: {e}[/bold red]")
+            raise typer.Exit(code=1)
 
         # Step 3: Parse requirements
         console.print(f"\n[bold]解析需求文档...[/bold]")
@@ -108,11 +166,18 @@ def generate(
 
         with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}")) as progress:
             task = progress.add_task("分析PRD内容...", total=None)
-            parsed_req = parser.parse(
-                prd_content=prd_content,
-                metric_content=metric_content,
-                project_name=project_name,
-            )
+            try:
+                parsed_req = parser.parse(
+                    prd_content=prd_content,
+                    metric_content=metric_content,
+                    project_name=project_name,
+                )
+            except QAAgentError as e:
+                console.print(f"\n[bold red]✗ 需求解析失败: {e}[/bold red]")
+                if verbose:
+                    import traceback
+                    console.print(traceback.format_exc())
+                raise typer.Exit(code=1)
 
         console.print(f"[green]✓[/green] 需求解析完成")
         console.print(f"  - 模块数量: {len(parsed_req.modules)}")
@@ -125,11 +190,18 @@ def generate(
 
         with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}")) as progress:
             task = progress.add_task("生成用例生成规则...", total=None)
-            walkthrough_rule = rule_gen.generate_rule(
-                parsed_requirement=parsed_req,
-                decomposition_principles=principles_content,
-                metric_definitions=metric_content,
-            )
+            try:
+                walkthrough_rule = rule_gen.generate_rule(
+                    parsed_requirement=parsed_req,
+                    decomposition_principles=principles_content,
+                    metric_definitions=metric_content,
+                )
+            except QAAgentError as e:
+                console.print(f"\n[bold red]✗ 规则生成失败: {e}[/bold red]")
+                if verbose:
+                    import traceback
+                    console.print(traceback.format_exc())
+                raise typer.Exit(code=1)
 
         console.print(f"[green]✓[/green] Walkthrough Rule生成完成")
         console.print(f"  - 规则ID: {walkthrough_rule.get('rule_id')}")
@@ -151,14 +223,31 @@ def generate(
 
         with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}")) as progress:
             task = progress.add_task("生成测试用例...", total=None)
-            result = case_gen.generate_testcases(
-                parsed_requirement=parsed_req,
-                walkthrough_rule=walkthrough_rule,
-            )
+            try:
+                result = case_gen.generate_testcases(
+                    parsed_requirement=parsed_req,
+                    walkthrough_rule=walkthrough_rule,
+                )
+            except QAAgentError as e:
+                console.print(f"\n[bold red]✗ 用例生成失败: {e}[/bold red]")
+                if verbose:
+                    import traceback
+                    console.print(traceback.format_exc())
+                raise typer.Exit(code=1)
 
         testcases = result["testcases"]
         scenes = result["scenes"]
         scene_mappings = result["scene_mappings"]
+
+        bundle: Optional[MaterializedBundle] = None
+        if materialize:
+            bundle = materialize_generation_outputs(
+                result,
+                output_dir=str(Path(output_dir) / "testcases"),
+            )
+
+        if bundle:
+            console.print(f"  - 已实体化: {len(bundle.test_cases)} 条DB用例, {len(bundle.index_docs)} 条ES文档")
 
         console.print(f"[green]✓[/green] 测试用例生成完成")
         console.print(f"  - 用例数量: {len(testcases)}")
@@ -205,12 +294,70 @@ def generate(
             write_jsonl_file(str(mappings_jsonl), scene_mappings)
             console.print(f"[green]✓[/green] 场景映射JSONL: {mappings_jsonl}")
 
+        # Save DB entities and ES docs
+        if bundle:
+            db_cases_jsonl = output_path / "testcases" / generate_output_filename(
+                prefix="db_testcases",
+                suffix="jsonl",
+                project_name=project_name,
+            )
+            write_jsonl_file(
+                str(db_cases_jsonl),
+                [case.model_dump() for case in bundle.test_cases],
+            )
+            console.print(f"[green]✓[/green] DB用例JSONL: {db_cases_jsonl}")
+
+            db_scenes_jsonl = output_path / "testcases" / generate_output_filename(
+                prefix="db_scenes",
+                suffix="jsonl",
+                project_name=project_name,
+            )
+            write_jsonl_file(
+                str(db_scenes_jsonl),
+                [scene.model_dump() for scene in bundle.scenes],
+            )
+            console.print(f"[green]✓[/green] DB场景JSONL: {db_scenes_jsonl}")
+
+            db_scene_mappings_jsonl = output_path / "testcases" / generate_output_filename(
+                prefix="db_scene_mappings",
+                suffix="jsonl",
+                project_name=project_name,
+            )
+            write_jsonl_file(
+                str(db_scene_mappings_jsonl),
+                [mapping.model_dump() for mapping in bundle.scene_mappings],
+            )
+            console.print(f"[green]✓[/green] DB场景映射JSONL: {db_scene_mappings_jsonl}")
+
+            db_relations_jsonl = output_path / "testcases" / generate_output_filename(
+                prefix="db_relations",
+                suffix="jsonl",
+                project_name=project_name,
+            )
+            write_jsonl_file(
+                str(db_relations_jsonl),
+                [relation.model_dump() for relation in bundle.relations],
+            )
+            console.print(f"[green]✓[/green] DB关系JSONL: {db_relations_jsonl}")
+
+            es_docs_jsonl = output_path / "testcases" / generate_output_filename(
+                prefix="es_docs",
+                suffix="jsonl",
+                project_name=project_name,
+            )
+            write_jsonl_file(
+                str(es_docs_jsonl),
+                [doc.model_dump() for doc in bundle.index_docs],
+            )
+            console.print(f"[green]✓[/green] ES文档JSONL: {es_docs_jsonl}")
+
         # Save Markdown summary
         md_content = generate_markdown_summary(
             project_name=project_name,
             parsed_req=parsed_req,
             testcases=clean_testcases,
             scenes=scenes,
+            prds=prds,
         )
         md_file = output_path / "reports" / generate_output_filename(
             prefix="summary",
@@ -224,6 +371,8 @@ def generate(
         console.print(f"\n[bold green]✓ 测试用例生成成功！[/bold green]")
         console.print(f"\n输出目录: [cyan]{output_path.absolute()}[/cyan]")
 
+    except typer.Exit:
+        raise
     except Exception as e:
         console.print(f"\n[bold red]✗ 错误: {e}[/bold red]")
         if verbose:
@@ -237,6 +386,7 @@ def generate_markdown_summary(
     parsed_req,
     testcases: list,
     scenes: list,
+    prds: list = None,
 ) -> str:
     """Generate Markdown summary report."""
     lines = [
@@ -244,16 +394,30 @@ def generate_markdown_summary(
         "",
         f"生成时间: {testcases[0]['create_time'] if testcases else 'N/A'}",
         "",
+    ]
+
+    # PRD sources
+    if prds and len(prds) > 1:
+        lines.extend([
+            "## PRD来源",
+            "",
+        ])
+        for i, prd_info in enumerate(prds, 1):
+            lines.append(f"{i}. **{prd_info['name']}**: {prd_info['uri']}")
+        lines.append("")
+
+    lines.extend([
         "## 统计信息",
         "",
         f"- **项目名称**: {project_name}",
+        f"- **PRD数量**: {len(prds) if prds else 1}",
         f"- **模块数量**: {len(parsed_req.modules)}",
         f"- **测试用例总数**: {len(testcases)}",
         f"- **场景数量**: {len(scenes)}",
         "",
         "## 模块列表",
         "",
-    ]
+    ])
 
     for module in parsed_req.modules:
         lines.append(f"### {module.name}")
@@ -297,9 +461,14 @@ def generate_markdown_summary(
 @app.command()
 def version():
     """显示版本信息"""
-    console.print("[bold cyan]VITA QA Agent[/bold cyan]")
-    console.print("版本: 0.1.0")
-    console.print("描述: 自动化测试用例生成工具")
+    console.print("[bold cyan]VITA QA Agent v2[/bold cyan]")
+    console.print("版本: 0.2.0")
+    console.print("描述: 增强版自动化测试用例生成工具")
+    console.print("\n新特性:")
+    console.print("  • 支持多个PRD文件")
+    console.print("  • 支持URI输入 (本地路径或HTTP URL)")
+    console.print("  • 可配置的LLM提示词")
+    console.print("  • 增强的错误处理")
 
 
 if __name__ == "__main__":
