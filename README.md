@@ -81,7 +81,7 @@ cp config/.env.example config/.env
 
 ```env
 # 优先使用Doubao（豆包/火山方舟）
-ARK_API_KEY=ae3d2401-a6ac-481f-a958-673b17d7b38c
+ARK_API_KEY=your_ark_api_key_here
 
 # 或使用G2M（可选，作为备选）
 G2M_API_KEY=your_g2m_key_here
