@@ -51,10 +51,27 @@ class TestCaseGenerator:
         relations = []
 
         # Extract scenario dimensions and template from rule
-        scenario_dimensions = walkthrough_rule.get("scenario_dimensions", [])
+        raw_dimensions = walkthrough_rule.get("scenario_dimensions", [])
+        scenario_dimensions = []
+        for dim in raw_dimensions:
+            if isinstance(dim, dict):
+                name = dim.get("name") or dim.get("dimension") or dim.get("id") or str(dim)
+                dim_id = dim.get("dimension_id") or dim.get("id") or dim.get("dimension") or name
+                norm = {**dim}
+                norm.setdefault("name", name)
+                norm.setdefault("dimension_id", dim_id)
+                scenario_dimensions.append(norm)
+            else:
+                scenario_dimensions.append({"name": str(dim), "dimension_id": str(dim)})
         testcase_template = walkthrough_rule.get("testcase_template", {})
         priority_rules = walkthrough_rule.get("priority_rules", [])
-        scene_rules = walkthrough_rule.get("scene_rules", [])
+        raw_scene_rules = walkthrough_rule.get("scene_rules", [])
+        if isinstance(raw_scene_rules, dict):
+            scene_rules = raw_scene_rules.get("rules", []) if isinstance(raw_scene_rules.get("rules", []), list) else []
+        elif isinstance(raw_scene_rules, list):
+            scene_rules = raw_scene_rules
+        else:
+            scene_rules = []
         module_mapping = walkthrough_rule.get("module_mapping", {})
 
         # Generate test cases for each module/feature/flow
@@ -120,7 +137,9 @@ class TestCaseGenerator:
         # Build basic case structure
         case = {}
 
-        fields = template.get("fields", {})
+        fields_conf = template.get("fields", {}) if isinstance(template, dict) else {}
+        # Some rule generations return a descriptive list; fall back to defaults when not dict
+        fields = fields_conf if isinstance(fields_conf, dict) else {}
 
         # Generate case_id
         case_id_config = fields.get("case_id", {})
@@ -148,8 +167,19 @@ class TestCaseGenerator:
         priority_info = self._determine_priority(
             module.id, feature.id, flow.type, dimension.get("dimension_id"), priority_rules
         )
-        case["priority"] = priority_info["priority"]
-        case["level"] = priority_info["level"]
+        # Map priority to DB-friendly values
+        level_val = priority_info.get("level") or priority_info.get("priority") or "P2"
+        if level_val not in {"P0", "P1", "P2", "P3"}:
+            level_val = "P2"
+        case["level"] = level_val
+
+        # Convert P-levels to high/medium/low
+        if level_val in {"P0", "P1"}:
+            case["priority"] = "high"
+        elif level_val == "P2":
+            case["priority"] = "medium"
+        else:
+            case["priority"] = "low"
 
         # Set status
         case["status"] = fields.get("status", {}).get("value", "NA")
@@ -241,12 +271,12 @@ class TestCaseGenerator:
 
             if matches:
                 return {
-                    "priority": rule.get("priority", "中"),
-                    "level": rule.get("level", "P2")
+                    "priority": rule.get("priority", "P2"),
+                    "level": rule.get("level", rule.get("priority", "P2"))
                 }
 
         # Default fallback
-        return {"priority": "中", "level": "P2"}
+        return {"priority": "P2", "level": "P2"}
 
     def _generate_steps_with_llm(
         self,
@@ -346,10 +376,15 @@ class TestCaseGenerator:
         """Generate scenes from scene rules."""
         scenes = []
         for rule in scene_rules:
+            scene_id = rule.get("scene_id") or f"scene_{uuid.uuid4().hex[:8]}"
+            # Ensure downstream mapping can reuse the generated id
+            rule.setdefault("scene_id", scene_id)
+            scene_name = rule.get("scene_name") or rule.get("dimension", "")
+            scene_desc = rule.get("scene_desc") or rule.get("mapping_rule", "")
             scene = {
-                "scene_id": rule.get("scene_id", f"scene_{uuid.uuid4().hex[:8]}"),
-                "scene_name": rule.get("scene_name", ""),
-                "scene_desc": rule.get("scene_desc", ""),
+                "scene_id": scene_id,
+                "scene_name": scene_name,
+                "scene_desc": scene_desc,
                 "create_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             }
             scenes.append(scene)

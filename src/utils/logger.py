@@ -24,11 +24,12 @@ def setup_logger(
     Returns:
         Configured logger
     """
-    logger = logging.getLogger(name)
-    logger.setLevel(level)
+    root_logger = logging.getLogger()
+    root_logger.setLevel(level)
 
     # Remove existing handlers
-    logger.handlers.clear()
+    for handler in list(root_logger.handlers):
+        root_logger.removeHandler(handler)
 
     # Create formatters
     detailed_formatter = logging.Formatter(
@@ -49,13 +50,13 @@ def setup_logger(
     )
     file_handler.setLevel(level)
     file_handler.setFormatter(detailed_formatter)
-    logger.addHandler(file_handler)
+    root_logger.addHandler(file_handler)
 
     # Console handler
     if console:
         console_handler = logging.StreamHandler(sys.stdout)
         console_handler.setLevel(level)
         console_handler.setFormatter(simple_formatter)
-        logger.addHandler(console_handler)
+        root_logger.addHandler(console_handler)
 
-    return logger
+    return logging.getLogger(name)

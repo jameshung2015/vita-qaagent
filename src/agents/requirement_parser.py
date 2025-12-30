@@ -154,6 +154,7 @@ class RequirementParser:
 """
 
         prompt += """## 输出要求：
+仅输出一个JSON代码块，必须是严格合法的JSON（UTF-8，无额外文本/注释/反斜杠转义，字符串内不得换行，步骤数组中每个元素单行表述）。
 请以JSON格式输出，包含以下结构：
 ```json
 {
@@ -187,16 +188,14 @@ class RequirementParser:
   }
 }
 ```
-
-请仔细分析需求文档，提取所有模块和功能点。对于每个功能，识别其正常流程(happy)、异常流程(exception)、边界情况(boundary)等。
+请仔细分析需求文档，提取所有模块和功能点。对于每个功能，识别其正常流程(happy)、异常流程(exception)、边界情况(boundary)等。确保输出可以直接被JSON解析，无多余字段、无多余文本。
 """
 
         return prompt
 
     @staticmethod
     def _extract_json_from_response(response: str) -> Dict[str, Any]:
-        """Extract JSON from LLM response (handle markdown code blocks)."""
-        # Try to find JSON in code block
+        """Extract and repair JSON from LLM response (handle markdown code blocks)."""
         if "```json" in response:
             start = response.find("```json") + 7
             end = response.find("```", start)
@@ -208,9 +207,40 @@ class RequirementParser:
         else:
             json_str = response.strip()
 
+        def _collapse_newlines_inside_strings(text: str) -> str:
+            result_chars = []
+            in_string = False
+            escape = False
+            for ch in text:
+                if escape:
+                    result_chars.append(ch)
+                    escape = False
+                    continue
+                if ch == "\\":
+                    result_chars.append(ch)
+                    escape = True
+                    continue
+                if ch == '"':
+                    in_string = not in_string
+                    result_chars.append(ch)
+                    continue
+                if in_string and ch in ["\n", "\r"]:
+                    result_chars.append(" ")
+                    continue
+                result_chars.append(ch)
+            return "".join(result_chars)
+
+        def _remove_trailing_commas(text: str) -> str:
+            import re
+            return re.sub(r",(\s*[}\]])", r"\1", text)
+
+        repaired = _collapse_newlines_inside_strings(json_str)
+        repaired = _remove_trailing_commas(repaired)
+
         try:
-            return json.loads(json_str)
+            return json.loads(repaired)
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse JSON: {e}")
-            logger.error(f"JSON string: {json_str}")
+            logger.error(f"Failed to parse JSON after repair: {e}")
+            logger.error(f"Original JSON string: {json_str}")
+            logger.error(f"Repaired JSON string: {repaired}")
             raise

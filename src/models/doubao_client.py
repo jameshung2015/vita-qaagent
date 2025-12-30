@@ -20,7 +20,7 @@ class DoubaoClient(BaseModelClient):
         self,
         api_key: Optional[str] = None,
         base_url: str = "https://ark.cn-beijing.volces.com/api/v3",
-        default_model: str = "doubao-seed-1-8-251215",
+        default_model: str = None,
     ):
         """
         Initialize Doubao client.
@@ -37,14 +37,19 @@ class DoubaoClient(BaseModelClient):
             )
 
         self.base_url = base_url
-        self.default_model = default_model
+        # Prefer explicit arg, then env, then a project-safe default endpoint
+        self.default_model = default_model or os.getenv("ARK_MODEL_ID") or "ep-20251230165319-6fwz7"
 
         self.client = OpenAI(
             base_url=self.base_url,
             api_key=self.api_key,
         )
 
-        logger.info(f"Initialized DoubaoClient with base_url={base_url}, model={default_model}")
+        logger.info(
+            "Initialized DoubaoClient with base_url=%s, model=%s",
+            base_url,
+            self.default_model,
+        )
 
     def chat_completion(
         self,

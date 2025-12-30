@@ -2,6 +2,7 @@
 
 import pytest
 import os
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from src.models.doubao_client import DoubaoClient
@@ -23,7 +24,43 @@ class TestDoubaoClient:
         """Test initialization with API key."""
         client = DoubaoClient(api_key="test_key")
         assert client.api_key == "test_key"
-        assert client.default_model == "doubao-seed-1-8-251215"
+        assert client.default_model == "ep-20251230165319-6fwz7"
+
+    def test_env_model_override(self):
+        """Env ARK_MODEL_ID overrides default model name."""
+        with patch.dict(os.environ, {"ARK_API_KEY": "test_key", "ARK_MODEL_ID": "ep-test"}, clear=True):
+            client = DoubaoClient()
+            assert client.default_model == "ep-test"
+
+    def test_chat_completion_success(self):
+        """Chat completion returns ModelResponse with usage when API succeeds."""
+        with patch.dict(os.environ, {"ARK_API_KEY": "test_key"}):
+            with patch("src.models.doubao_client.OpenAI") as mock_openai:
+                mock_response = SimpleNamespace(
+                    choices=[SimpleNamespace(message=SimpleNamespace(content="ok"))],
+                    usage=SimpleNamespace(prompt_tokens=1, completion_tokens=2, total_tokens=3),
+                )
+
+                mock_client = Mock()
+                mock_client.chat.completions.create.return_value = mock_response
+                mock_openai.return_value = mock_client
+
+                client = DoubaoClient()
+                res = client.chat_completion(
+                    messages=[{"role": "user", "content": "hi"}],
+                    temperature=0.1,
+                    model="doubao-custom",
+                )
+
+                assert res.content == "ok"
+                assert res.model == "doubao-custom"
+                assert res.usage == {"prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3}
+                mock_client.chat.completions.create.assert_called_once_with(
+                    model="doubao-custom",
+                    messages=[{"role": "user", "content": "hi"}],
+                    temperature=0.1,
+                    stream=False,
+                )
 
 
 class TestG2MClient:

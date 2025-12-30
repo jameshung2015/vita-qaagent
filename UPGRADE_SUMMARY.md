@@ -35,7 +35,7 @@
 - URI加载器 (`src/utils/file_loader.py`)
 - 支持本地文件和HTTP(S) URL
 - 多PRD自动合并功能
-- CLI v2增强版 (`cli/main_v2.py`)
+- CLI v2增强版 (`cli/main.py`)
 
 **受益:**
 - 支持大型项目的模块化PRD
@@ -45,7 +45,7 @@
 ## 新增文件清单
 
 ```
-✓ cli/main_v2.py              - CLI增强版
+✓ cli/main.py              - CLI增强版
 ✓ config/prompts.yaml          - 提示词配置
 ✓ src/utils/exceptions.py     - 自定义异常
 ✓ src/utils/error_handler.py  - 错误处理工具
@@ -66,15 +66,15 @@ python cli/main.py generate --prd my_prd.md
 ### 方式2: 使用增强版CLI (推荐)
 ```bash
 # 多PRD输入
-python cli/main_v2.py generate \
+python cli/main.py generate \
   --prd prd1.md --prd prd2.md --prd prd3.md
 
 # URI输入
-python cli/main_v2.py generate \
+python cli/main.py generate \
   --prd https://example.com/prd.md
 
 # 自定义提示词
-python cli/main_v2.py generate \
+python cli/main.py generate \
   --prd my_prd.md \
   --prompts-config custom_prompts.yaml
 ```
@@ -98,13 +98,13 @@ python cli/main_v2.py generate \
 测试新功能:
 ```bash
 # 测试多PRD
-python cli/main_v2.py generate \
+python cli/main.py generate \
   --prd metric/识人识物_用例设计原则与示例.md \
   --prd metric/识人识物_用例设计原则与示例.md \
   --project test_multi
 
 # 查看版本
-python cli/main_v2.py version
+python cli/main.py version
 ```
 
 ## 下一步建议
@@ -120,7 +120,7 @@ python cli/main_v2.py version
 - ✅ 向后兼容100%
 - ✅ 原有功能不受影响
 - ✅ 可以逐步迁移到v2
-- ⚠️ 新功能需要使用 `cli/main_v2.py`
+- ⚠️ 新功能需要使用 `cli/main.py`
 
 ---
 

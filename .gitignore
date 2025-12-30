@@ -57,6 +57,7 @@ outputs/reports/*
 !outputs/testcases/.gitkeep
 !outputs/rules/.gitkeep
 !outputs/reports/.gitkeep
+prd/*
 
 # History
 history/*

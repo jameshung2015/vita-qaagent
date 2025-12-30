@@ -13,16 +13,42 @@ python cli/main.py generate \
 ### 增强使用（多PRD + URI）
 
 ```bash
-python cli/main_v2.py generate \
+python cli/main.py generate \
   --prd local_prd1.md \
   --prd local_prd2.md \
   --prd https://example.com/remote_prd.md \
   --project multi_source
 ```
 
+### 按Agent分步执行
+
+```bash
+# 1) 仅解析PRD，产出 ParsedRequirement JSON
+python cli/main.py parse --prd metric/识人识物_用例设计原则与示例.md --output outputs
+
+# 2) 仅生成规则，可复用解析产物
+python cli/main.py rule --parsed outputs/parsed/recognition_parsed_requirement_20251230_101500.json --output outputs
+
+# 3) 仅生成用例，可复用解析+规则
+python cli/main.py cases \
+  --parsed outputs/parsed/recognition_parsed_requirement_20251230_101500.json \
+  --rule outputs/rules/recognition_rule_20251230_171949.json \
+  --output outputs \
+  --materialize
+```
+
 ## 命令参数说明
 
-### 通用参数
+### 子命令概览
+
+| 子命令 | 作用 | 常见复用方式 |
+|--------|------|--------------|
+| `generate` | 全流程：解析 + 规则 + 用例 (+ 可选实体化) | 直接产出全部文件 |
+| `parse` | 仅解析PRD，输出 ParsedRequirement JSON | 后续 `rule` / `cases` 复用 `--parsed` |
+| `rule` | 生成规则，可复用已解析结果 | `--parsed` 指向解析产物 |
+| `cases` | 生成用例，可复用解析与规则 | `--parsed` + `--rule` 组合，或自动生成缺失部分 |
+
+### generate / parse / rule / cases 常用参数
 
 | 参数 | 简写 | 必填 | 说明 |
 |------|------|------|------|
@@ -33,6 +59,21 @@ python cli/main_v2.py generate \
 | `--principles` | - | - | 拆解原则文档路径或URL |
 | `--provider` | - | - | 模型提供商（auto/doubao/g2m）|
 | `--verbose` | `-v` | - | 详细输出 |
+
+### rule 专属参数
+
+| 参数 | 说明 |
+|------|------|
+| `--parsed` | 已有 ParsedRequirement JSON 文件路径（否则自动解析PRD） |
+| `--save-rule` | 是否保存生成的规则 JSON（默认保存） |
+
+### cases 专属参数
+
+| 参数 | 说明 |
+|------|------|
+| `--parsed` | 已有 ParsedRequirement JSON 文件路径（否则自动解析PRD） |
+| `--rule` | 已有 walkthrough rule JSON 文件路径（否则自动生成） |
+| `--materialize/--no-materialize` | 是否落盘 DB/ES 实体（默认落盘） |
 
 ### CLI v2特有参数
 
@@ -55,7 +96,7 @@ python cli/main.py generate \
 ### 场景2: 多模块项目（多PRD）
 
 ```bash
-python cli/main_v2.py generate \
+python cli/main.py generate \
   --prd modules/auth.md \
   --prd modules/payment.md \
   --prd modules/order.md \
@@ -65,7 +106,7 @@ python cli/main_v2.py generate \
 ### 场景3: 从远程获取PRD
 
 ```bash
-python cli/main_v2.py generate \
+python cli/main.py generate \
   --prd https://docs.company.com/latest_prd.md \
   --metric https://docs.company.com/metrics.md \
   --project production
@@ -74,7 +115,7 @@ python cli/main_v2.py generate \
 ### 场景4: 自定义提示词优化
 
 ```bash
-python cli/main_v2.py generate \
+python cli/main.py generate \
   --prd my_prd.md \
   --prompts-config custom_prompts.yaml \
   --verbose
@@ -142,7 +183,7 @@ A: 使用多PRD功能拆分成多个文件，每个文件处理一个模块。
 A: 尝试调整 `config/prompts.yaml` 中的提示词和参数。
 
 ### Q: 如何从URL加载PRD？
-A: 使用 `cli/main_v2.py` 并指定HTTP(S) URL即可。
+A: 使用 `cli/main.py` 并指定HTTP(S) URL即可。
 
 ### Q: 支持哪些PRD格式？
 A: 支持Markdown格式的PRD文档。
@@ -172,7 +213,7 @@ done
 # .github/workflows/testcase-gen.yml
 - name: Generate Test Cases
   run: |
-    python cli/main_v2.py generate \
+    python cli/main.py generate \
       --prd ${{ github.event.pull_request.body }} \
       --project pr-${{ github.event.pull_request.number }}
 ```

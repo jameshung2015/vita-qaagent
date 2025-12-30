@@ -99,6 +99,16 @@ python cli/main.py generate \
   --merge-prds \
   --materialize \
   --verbose
+
+# 分步执行单个Agent
+# 仅解析PRD
+python cli/main.py parse --prd metric/识人识物_用例设计原则与示例.md --output outputs
+
+# 仅生成规则（可复用上一步解析产物）
+python cli/main.py rule --parsed outputs/parsed/recognition_parsed_requirement_20251230_101500.json
+
+# 仅生成用例（可复用解析与规则）
+python cli/main.py cases --parsed outputs/parsed/recognition_parsed_requirement_20251230_101500.json --rule outputs/rules/recognition_rule_20251230_171949.json --materialize
 ```
 
 查看输出：
@@ -136,11 +146,20 @@ pytest tests/ --cov=src --cov-report=html
 
 ## 使用说明
 
+### 子命令
+- `generate`: 全流程（解析+规则+用例+可选实体化）
+- `parse`: 仅解析PRD，输出 ParsedRequirement JSON
+- `rule`: 仅生成walkthrough rule，可复用 `--parsed`
+- `cases`: 仅生成用例，可复用 `--parsed` 与 `--rule`
+
 ### 基本命令
 
 ```bash
 python cli/main.py --help
 python cli/main.py generate --help
+python cli/main.py parse --help
+python cli/main.py rule --help
+python cli/main.py cases --help
 ```
 
 ### 命令参数
@@ -326,5 +345,5 @@ A: 检查网络连接，确保可以访问 Doubao 或 G2M 的API端点。可尝�
 
 ---
 
-**版本**: 0.1.0
+**版本**: 0.2.0
 **最后更新**: 2025-12-30
