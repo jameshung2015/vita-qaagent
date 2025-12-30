@@ -1,0 +1,11 @@
+# Secrets and local configs
+config/.env
+config/*.local
+config/*.secrets
+.env
+*.key
+*.pem
+.g2m_api_key
+# OS / editor noise
+.DS_Store
+Thumbs.db
