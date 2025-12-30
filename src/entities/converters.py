@@ -7,7 +7,6 @@ from typing import Iterable, Optional, Sequence
 
 from .db_models import (
     DATETIME_FMT,
-    CasePriority,
     CaseRelation,
     CaseScene,
     CaseSceneMapping,
@@ -54,7 +53,6 @@ def to_test_case(
         owner=raw_case.get("owner", default_owner),
         status=raw_case.get("status", CaseStatus.NA),
         remark=raw_case.get("remark"),
-        priority=raw_case.get("priority"),
         create_time=now,
         update_time=_coerce_datetime(raw_case.get("update_time") or now),
         executor=raw_case.get("executor", default_executor),
@@ -109,7 +107,6 @@ def to_test_case_index_document(
         title=case.title,
         module_id=module_id or case.module,
         module_name=module_name or case.module,
-        priority=case.priority or CasePriority.MEDIUM,
         status=case.status,
         steps=steps_content,
         expected_result=expected_result_content,

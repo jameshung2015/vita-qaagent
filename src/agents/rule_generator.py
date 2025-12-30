@@ -134,15 +134,13 @@ class RuleGenerator:
    - security: 安全相关
    等
 7. **testcase_template**: 用例字段模板，定义每个字段如何生成
-8. **priority_rules**: 优先级分配规则
-9. **relation_rules**: 用例关系规则(可选)
-10. **scene_rules**: 场景规则
-11. **output_format**: 输出格式配置
+8. **relation_rules**: 用例关系规则(可选)
+9. **scene_rules**: 场景规则
+10. **output_format**: 输出格式配置
 
 请确保生成的规则：
 - 覆盖所有识别到的模块和功能
 - 定义清晰的场景维度，涵盖正常、异常、边界等情况
-- 优先级规则合理，核心功能为高优先级
 - 字段模板完整，与数据库字段对齐
 
 输出纯JSON格式，不要包含其他说明文字。
@@ -173,14 +171,57 @@ class RuleGenerator:
         # Ensure scenario_dimensions exists
         if "scenario_dimensions" not in rule or not rule["scenario_dimensions"]:
             rule["scenario_dimensions"] = self._get_default_scenario_dimensions()
+        else:
+            normalized_dims = []
+            for dim in rule["scenario_dimensions"]:
+                if isinstance(dim, dict):
+                    name = dim.get("name") or dim.get("dimension") or dim.get("id") or ""
+                    dim_id = dim.get("dimension_id") or dim.get("id") or dim.get("dimension") or name
+                    norm = {**dim}
+                    norm.setdefault("name", name)
+                    norm.setdefault("dimension_id", dim_id)
+                    normalized_dims.append(norm)
+                else:
+                    normalized_dims.append({"name": str(dim), "dimension_id": str(dim)})
+            rule["scenario_dimensions"] = normalized_dims
 
-        # Ensure testcase_template exists
-        if "testcase_template" not in rule:
-            rule["testcase_template"] = self._get_default_testcase_template()
+        # Ensure testcase_template exists and is normalized
+        default_template = self._get_default_testcase_template()
+        template = rule.get("testcase_template")
+        if not isinstance(template, dict):
+            template = default_template
+        fields = template.get("fields") if isinstance(template, dict) else None
+        if not isinstance(fields, dict) or not fields:
+            template["fields"] = default_template.get("fields", {})
+        else:
+            # Guarantee expected_result uses LLM generation when missing
+            expected_field = fields.get("expected_result")
+            if not isinstance(expected_field, dict):
+                fields["expected_result"] = {"strategy": "llm_generate_text"}
+            else:
+                expected_field.setdefault("strategy", "llm_generate_text")
+        rule["testcase_template"] = template
 
-        # Ensure priority_rules exists
-        if "priority_rules" not in rule:
-            rule["priority_rules"] = self._get_default_priority_rules()
+        # Remove priority rules entirely per latest requirement
+        rule.pop("priority_rules", None)
+
+        # Strip priority field from testcase_template if provided
+        if isinstance(rule.get("testcase_template"), dict):
+            fields = rule["testcase_template"].get("fields")
+            if isinstance(fields, dict) and "priority" in fields:
+                fields.pop("priority")
+
+        # Normalize scene_rules: accept dict -> list
+        if "scene_rules" in rule:
+            sr = rule.get("scene_rules")
+            if isinstance(sr, dict):
+                scene_rules = []
+                for name, vals in sr.items():
+                    considerations = vals if isinstance(vals, list) else [vals]
+                    scene_rules.append({"scene": name, "considerations": considerations})
+                rule["scene_rules"] = scene_rules
+            elif not isinstance(sr, list):
+                rule["scene_rules"] = []
 
         return rule
 
@@ -219,7 +260,6 @@ class RuleGenerator:
                 "module": {"strategy": "from_module_mapping"},
                 "feature": {"strategy": "from_feature_name"},
                 "level": {"strategy": "from_level_rules", "default": "P2"},
-                "priority": {"strategy": "from_priority_rules", "default": "中"},
                 "status": {"strategy": "fixed", "value": "NA"},
                 "steps": {"strategy": "llm_generate_list"},
                 "expected_result": {"strategy": "llm_generate_text"},
@@ -227,30 +267,6 @@ class RuleGenerator:
                 "update_time": {"strategy": "now"}
             }
         }
-
-    @staticmethod
-    def _get_default_priority_rules() -> list:
-        """Get default priority rules."""
-        return [
-            {
-                "name": "核心正常流高优先级",
-                "conditions": {"dimension_id_in": ["happy_path"]},
-                "priority": "高",
-                "level": "P0"
-            },
-            {
-                "name": "异常和边界中优先级",
-                "conditions": {"dimension_id_in": ["invalid_input", "boundary"]},
-                "priority": "中",
-                "level": "P1"
-            },
-            {
-                "name": "其他低优先级",
-                "conditions": {"otherwise": True},
-                "priority": "低",
-                "level": "P2"
-            }
-        ]
 
     @staticmethod
     def _extract_json_from_response(response: str) -> Dict[str, Any]:

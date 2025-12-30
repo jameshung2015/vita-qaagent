@@ -3,7 +3,6 @@
 from .db_models import (
     DATETIME_FMT,
     CaseLevel,
-    CasePriority,
     CaseRelation,
     CaseScene,
     CaseSceneMapping,
@@ -26,7 +25,6 @@ from .materializer import MaterializedBundle, materialize_generation_outputs
 __all__ = [
     "DATETIME_FMT",
     "CaseLevel",
-    "CasePriority",
     "CaseRelation",
     "CaseScene",
     "CaseSceneMapping",

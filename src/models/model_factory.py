@@ -7,10 +7,11 @@ from typing import Optional, Literal
 from .base import BaseModelClient
 from .doubao_client import DoubaoClient
 from .g2m_client import G2MClient
+from .ollama_client import OllamaClient
 
 logger = logging.getLogger(__name__)
 
-ModelProvider = Literal["doubao", "g2m", "auto"]
+ModelProvider = Literal["doubao", "g2m", "ollama", "auto"]
 
 
 class ModelFactory:
@@ -43,6 +44,9 @@ class ModelFactory:
             elif os.getenv("G2M_API_KEY"):
                 logger.info("Auto-selecting G2M (G2M_API_KEY found)")
                 return G2MClient(**kwargs)
+            elif os.getenv("OLLAMA_HOST") or os.getenv("OLLAMA_MODEL"):
+                logger.info("Auto-selecting Ollama (OLLAMA_HOST or OLLAMA_MODEL found)")
+                return OllamaClient(**kwargs)
             else:
                 raise ValueError(
                     "No API keys found. Set ARK_API_KEY or G2M_API_KEY in environment."
@@ -55,6 +59,10 @@ class ModelFactory:
         elif provider == "g2m":
             logger.info("Creating G2M client")
             return G2MClient(**kwargs)
+
+        elif provider == "ollama":
+            logger.info("Creating Ollama client")
+            return OllamaClient(**kwargs)
 
         else:
             raise ValueError(f"Invalid provider: {provider}. Use 'doubao', 'g2m', or 'auto'.")

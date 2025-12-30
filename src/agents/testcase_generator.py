@@ -8,6 +8,7 @@ from datetime import datetime
 
 from ..models.base import BaseModelClient
 from .requirement_parser import ParsedRequirement, Module, Feature, Flow
+from ..utils.config_loader import get_config_loader
 
 logger = logging.getLogger(__name__)
 
@@ -23,11 +24,14 @@ class TestCaseGenerator:
             model_client: Model client for LLM calls
         """
         self.model_client = model_client
+        self.config_loader = get_config_loader()
 
     def generate_testcases(
         self,
         parsed_requirement: ParsedRequirement,
         walkthrough_rule: Dict[str, Any],
+        metric_content: Optional[str] = None,
+        prd_content: Optional[str] = None,
     ) -> Dict[str, List[Dict[str, Any]]]:
         """
         Generate test cases from requirements and rule.
@@ -64,7 +68,6 @@ class TestCaseGenerator:
             else:
                 scenario_dimensions.append({"name": str(dim), "dimension_id": str(dim)})
         testcase_template = walkthrough_rule.get("testcase_template", {})
-        priority_rules = walkthrough_rule.get("priority_rules", [])
         raw_scene_rules = walkthrough_rule.get("scene_rules", [])
         if isinstance(raw_scene_rules, dict):
             scene_rules = raw_scene_rules.get("rules", []) if isinstance(raw_scene_rules.get("rules", []), list) else []
@@ -73,6 +76,9 @@ class TestCaseGenerator:
         else:
             scene_rules = []
         module_mapping = walkthrough_rule.get("module_mapping", {})
+
+        metric_ctx = self._trim_context(metric_content, limit=1200)
+        prd_ctx = self._trim_context(prd_content, limit=1500)
 
         # Generate test cases for each module/feature/flow
         for module in parsed_requirement.modules:
@@ -87,9 +93,10 @@ class TestCaseGenerator:
                                 flow=flow,
                                 dimension=dimension,
                                 template=testcase_template,
-                                priority_rules=priority_rules,
                                 module_mapping=module_mapping,
-                                project_name=parsed_requirement.project_name
+                                project_name=parsed_requirement.project_name,
+                                metric_context=metric_ctx,
+                                prd_context=prd_ctx
                             )
                             testcases.append(case)
 
@@ -129,9 +136,10 @@ class TestCaseGenerator:
         flow: Flow,
         dimension: Dict[str, Any],
         template: Dict[str, Any],
-        priority_rules: List[Dict[str, Any]],
         module_mapping: Dict[str, Any],
-        project_name: str
+        project_name: str,
+        metric_context: Optional[str] = None,
+        prd_context: Optional[str] = None
     ) -> Dict[str, Any]:
         """Generate a single test case."""
         # Build basic case structure
@@ -163,23 +171,12 @@ class TestCaseGenerator:
         # Set feature
         case["feature"] = feature.name
 
-        # Determine priority and level
-        priority_info = self._determine_priority(
-            module.id, feature.id, flow.type, dimension.get("dimension_id"), priority_rules
-        )
-        # Map priority to DB-friendly values
-        level_val = priority_info.get("level") or priority_info.get("priority") or "P2"
+        # Determine level (P0-P3) only; default to template-provided value
+        level_field = fields.get("level", {})
+        level_val = level_field.get("default", "P2")
         if level_val not in {"P0", "P1", "P2", "P3"}:
             level_val = "P2"
         case["level"] = level_val
-
-        # Convert P-levels to high/medium/low
-        if level_val in {"P0", "P1"}:
-            case["priority"] = "high"
-        elif level_val == "P2":
-            case["priority"] = "medium"
-        else:
-            case["priority"] = "low"
 
         # Set status
         case["status"] = fields.get("status", {}).get("value", "NA")
@@ -191,6 +188,8 @@ class TestCaseGenerator:
         # Generate steps and expected_result using LLM
         steps_config = fields.get("steps", {})
         expected_config = fields.get("expected_result", {})
+        if not expected_config.get("strategy"):
+            expected_config = {**expected_config, "strategy": "llm_generate_text"}
 
         if steps_config.get("strategy") == "llm_generate_list":
             case["steps"] = self._generate_steps_with_llm(
@@ -201,7 +200,12 @@ class TestCaseGenerator:
 
         if expected_config.get("strategy") == "llm_generate_text":
             case["expected_result"] = self._generate_expected_result_with_llm(
-                feature, flow, dimension, case["steps"]
+                feature,
+                flow,
+                dimension,
+                case["steps"],
+                metric_context,
+                prd_context
             )
         else:
             case["expected_result"] = "请根据步骤验证预期结果"
@@ -238,45 +242,6 @@ class TestCaseGenerator:
         for key, value in values.items():
             result = result.replace(f"{{{key}}}", value)
         return result
-
-    def _determine_priority(
-        self,
-        module_id: str,
-        feature_id: str,
-        flow_type: str,
-        dimension_id: str,
-        priority_rules: List[Dict[str, Any]]
-    ) -> Dict[str, str]:
-        """Determine priority and level based on rules."""
-        for rule in priority_rules:
-            conditions = rule.get("conditions", {})
-
-            # Check conditions
-            matches = True
-
-            if "module_id_in" in conditions:
-                if module_id not in conditions["module_id_in"]:
-                    matches = False
-
-            if "flow_type_in" in conditions:
-                if flow_type not in conditions["flow_type_in"]:
-                    matches = False
-
-            if "dimension_id_in" in conditions:
-                if dimension_id not in conditions["dimension_id_in"]:
-                    matches = False
-
-            if "otherwise" in conditions and conditions["otherwise"]:
-                matches = True
-
-            if matches:
-                return {
-                    "priority": rule.get("priority", "P2"),
-                    "level": rule.get("level", rule.get("priority", "P2"))
-                }
-
-        # Default fallback
-        return {"priority": "P2", "level": "P2"}
 
     def _generate_steps_with_llm(
         self,
@@ -335,26 +300,28 @@ class TestCaseGenerator:
         feature: Feature,
         flow: Flow,
         dimension: Dict[str, Any],
-        steps: List[str]
+        steps: List[str],
+        metric_context: Optional[str] = None,
+        prd_context: Optional[str] = None
     ) -> str:
         """Generate expected result using LLM."""
-        prompt = f"""请为以下测试步骤生成预期结果。
+        steps_formatted = chr(10).join(f"{i+1}. {step}" for i, step in enumerate(steps))
+        prompt = self.config_loader.get_prompt(
+            "testcase_generator",
+            "expected_result_prompt_template",
+            feature_name=feature.name,
+            flow_name=flow.name,
+            dimension_name=dimension.get("name"),
+            steps_formatted=steps_formatted
+        )
 
-功能：{feature.name}
-流程：{flow.name}
-场景：{dimension.get('name')}
-
-测试步骤：
-{chr(10).join(f"{i+1}. {step}" for i, step in enumerate(steps))}
-
-要求：
-1. 预期结果要具体、可验证
-2. 描述系统应该的行为和状态
-3. 长度控制在100字以内
-4. 直接输出预期结果文本，不要包含"预期结果："等前缀
-
-请输出：
-"""
+        extras = []
+        if metric_context:
+            extras.append(f"附加Metric参考：\n{metric_context}")
+        if prd_context:
+            extras.append(f"需求片段：\n{prd_context}")
+        if extras:
+            prompt = f"{prompt}\n\n" + "\n\n".join(extras)
 
         try:
             response = self.model_client.chat_completion(
@@ -369,6 +336,16 @@ class TestCaseGenerator:
             logger.warning(f"Failed to generate expected result with LLM: {e}")
             return f"{feature.name}功能正常执行，达到预期效果"
 
+    @staticmethod
+    def _trim_context(text: Optional[str], limit: int = 1200) -> Optional[str]:
+        """Keep context within a safe length for prompts."""
+        if not text:
+            return None
+        clean = text.strip()
+        if len(clean) <= limit:
+            return clean
+        return clean[:limit] + "..."
+
     def _generate_scenes(
         self,
         scene_rules: List[Dict[str, Any]]
@@ -379,8 +356,16 @@ class TestCaseGenerator:
             scene_id = rule.get("scene_id") or f"scene_{uuid.uuid4().hex[:8]}"
             # Ensure downstream mapping can reuse the generated id
             rule.setdefault("scene_id", scene_id)
-            scene_name = rule.get("scene_name") or rule.get("dimension", "")
-            scene_desc = rule.get("scene_desc") or rule.get("mapping_rule", "")
+            # Accept common keys from rule files: scene / scene_name / dimension
+            scene_name = rule.get("scene_name") or rule.get("scene") or rule.get("dimension", "")
+            # Prefer explicit scene_desc; otherwise derive from considerations/mapping_rule
+            if rule.get("scene_desc"):
+                scene_desc = rule.get("scene_desc")
+            elif rule.get("considerations"):
+                # Join considerations as a short bullet-like text
+                scene_desc = "；".join(str(item) for item in rule.get("considerations") if item)
+            else:
+                scene_desc = rule.get("mapping_rule", "")
             scene = {
                 "scene_id": scene_id,
                 "scene_name": scene_name,

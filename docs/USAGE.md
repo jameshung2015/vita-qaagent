@@ -24,7 +24,7 @@ python cli/main.py generate \
 
 ```bash
 # 1) 仅解析PRD，产出 ParsedRequirement JSON
-python cli/main.py parse --prd metric/识人识物_用例设计原则与示例.md --output outputs
+python cli/main.py parse --prd metric/识人识物_用例设计原则与示例.md --prd prd/识人识物.md --output outputs --verbose
 
 # 2) 仅生成规则，可复用解析产物
 python cli/main.py rule --parsed outputs/parsed/recognition_parsed_requirement_20251230_101500.json --output outputs
@@ -36,6 +36,11 @@ python cli/main.py cases \
   --output outputs \
   --materialize
 ```
+
+#### 生成结果自检
+- 预期字段：`testcase_template.fields.expected_result.strategy` 应为 `llm_generate_text`；系统已自动兜底，但建议在规则文件中确认。
+- 快速检查：`grep "请根据步骤验证预期结果" outputs/testcases/*testcases_*.jsonl`；无匹配即通过。
+- 如有匹配：重新生成规则+用例，并确认模型服务可用（Ollama/Doubao）。
 
 ## 命令参数说明
 

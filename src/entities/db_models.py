@@ -30,13 +30,6 @@ class CaseStatus(str, Enum):
     NA = "NA"
 
 
-class CasePriority(str, Enum):
-    """Abstract priority mapping."""
-
-    HIGH = "high"
-    MEDIUM = "medium"
-    LOW = "low"
-
 
 class RelationType(str, Enum):
     """Relationship types between cases."""
@@ -66,7 +59,6 @@ class TestCase(BaseModel):
     owner: Optional[str] = None
     status: CaseStatus = CaseStatus.NA
     remark: Optional[str] = None
-    priority: Optional[CasePriority] = None
     create_time: datetime
     update_time: datetime
     executor: Optional[str] = None
@@ -79,17 +71,6 @@ class TestCase(BaseModel):
         if isinstance(value, str):
             return datetime.strptime(value, DATETIME_FMT)
         raise ValueError("Datetime must be str or datetime instance")
-
-    @model_validator(mode="after")
-    def _ensure_priority(self) -> "TestCase":
-        if self.priority is None:
-            if self.level in {CaseLevel.P0, CaseLevel.P1}:
-                self.priority = CasePriority.HIGH
-            elif self.level is CaseLevel.P2:
-                self.priority = CasePriority.MEDIUM
-            else:
-                self.priority = CasePriority.LOW
-        return self
 
     @field_serializer("create_time", "update_time")
     def _serialize_datetime(self, value: datetime) -> str:
@@ -179,7 +160,6 @@ class TestCaseIndexDocument(BaseModel):
     title: str
     module_id: str
     module_name: str
-    priority: CasePriority
     status: CaseStatus
     steps: str
     expected_result: str

@@ -394,6 +394,8 @@ def generate(
                 result = case_gen.generate_testcases(
                     parsed_requirement=parsed_req,
                     walkthrough_rule=walkthrough_rule,
+                    metric_content=metric_content,
+                    prd_content=prd_content,
                 )
             except QAAgentError as e:
                 console.print(f"\n[bold red]✗ 用例生成失败: {e}[/bold red]")
@@ -815,14 +817,14 @@ def generate_markdown_summary(
     lines.extend([
         "## 测试用例列表",
         "",
-        "| 用例ID | 用例名称 | 模块 | 优先级 | 等级 | 状态 |",
-        "|--------|----------|------|--------|------|------|",
+        "| 用例ID | 用例名称 | 模块 | 等级 | 状态 |",
+        "|--------|----------|------|------|------|",
     ])
 
     for tc in testcases:
         lines.append(
             f"| {tc['case_id']} | {tc['title']} | {tc['module']} | "
-            f"{tc['priority']} | {tc['level']} | {tc['status']} |"
+            f"{tc['level']} | {tc['status']} |"
         )
 
     if scenes:

@@ -144,6 +144,11 @@ pytest tests/integration/ -v
 pytest tests/ --cov=src --cov-report=html
 ```
 
+### 5. 生成结果自检
+- 预期结果质量：规则模板的 `testcase_template.fields.expected_result.strategy` 必须是 `llm_generate_text`；生成后的用例如出现 “请根据步骤验证预期结果”，说明模板缺失或模型调用异常。
+- 快速排查：`grep "请根据步骤验证预期结果" outputs/testcases/*testcases_*.jsonl`（无匹配为通过）。
+- 失败恢复：重新生成规则+用例，确保模型服务可用（Ollama/Doubao），并保留 `prompts.yaml` 默认的 expected_result 模板。
+
 ## 使用说明
 
 ### 子命令
