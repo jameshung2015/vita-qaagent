@@ -1,3 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
 # Secrets and local configs
 config/.env
 config/*.local
@@ -6,6 +47,26 @@ config/*.secrets
 *.key
 *.pem
 .g2m_api_key
+
+# Outputs (keep structure, ignore files)
+outputs/logs/*
+outputs/testcases/*
+outputs/rules/*
+outputs/reports/*
+!outputs/logs/.gitkeep
+!outputs/testcases/.gitkeep
+!outputs/rules/.gitkeep
+!outputs/reports/.gitkeep
+
+# History
+history/*
+!history/.gitkeep
+
 # OS / editor noise
 .DS_Store
 Thumbs.db
+
+# Temporary files
+*.tmp
+*.log
+*.bak

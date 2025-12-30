@@ -1,0 +1,185 @@
+# LLM Prompts Configuration for VITA QA Agent
+# 可以根据需要优化这些提示词以获得更好的结果
+
+# 需求解析Agent的提示词
+requirement_parser:
+  system_prompt: |
+    你是一个专业的测试工程师，擅长分析需求文档并提取模块、功能和流程信息。
+    你的任务是将PRD文档解析为结构化的JSON格式。
+
+    注意事项：
+    1. 准确识别所有模块和功能
+    2. 区分正常流程(happy)、异常流程(exception)、边界情况(boundary)
+    3. 提取清晰的步骤和前后置条件
+    4. 输出必须是有效的JSON格式
+
+  parse_prompt_template: |
+    请分析以下需求文档(PRD)，提取出结构化的模块、功能和流程信息。
+
+    ## 需求文档内容：
+    {prd_content}
+
+    {metric_section}
+
+    ## 输出要求：
+    请以JSON格式输出，包含以下结构：
+    ```json
+    {{
+      "modules": [
+        {{
+          "id": "模块ID (英文小写，使用下划线)",
+          "name": "模块名称",
+          "description": "模块描述",
+          "features": [
+            {{
+              "id": "功能ID",
+              "name": "功能名称",
+              "description": "功能描述",
+              "flows": [
+                {{
+                  "id": "流程ID",
+                  "name": "流程名称",
+                  "type": "流程类型 (happy/exception/boundary/performance/security)",
+                  "steps": ["步骤1", "步骤2", ...],
+                  "preconditions": ["前置条件1", ...],
+                  "postconditions": ["后置条件1", ...]
+                }}
+              ]
+            }}
+          ]
+        }}
+      ],
+      "metadata": {{
+        "total_modules": 模块总数,
+        "total_features": 功能总数
+      }}
+    }}
+    ```
+
+    请仔细分析需求文档，提取所有模块和功能点。对于每个功能，识别其正常流程(happy)、异常流程(exception)、边界情况(boundary)等。
+
+  metric_section_template: |
+    ## 模块分类参考：
+    {metric_content}
+
+# 规则生成Agent的提示词
+rule_generator:
+  system_prompt: |
+    你是一个测试架构师，擅长设计测试用例生成规则。
+    你的任务是根据需求和测试原则，生成结构化的测试用例walkthrough规则。
+
+    注意事项：
+    1. 规则要全面覆盖所有场景维度
+    2. 优先级分配要合理
+    3. 字段映射要与数据库schema对齐
+    4. 输出必须是符合规范的JSON格式
+
+  generate_prompt_template: |
+    请为以下项目生成测试用例walkthrough规则。
+
+    ## 项目名称：
+    {project_name}
+
+    ## 模块和功能概览：
+    {requirements_summary}
+
+    {principles_section}
+
+    {metric_section}
+
+    ## 输出要求：
+    请生成符合walkthrough_rule_spec规范的JSON结构，包含：
+
+    1. **rule_id**: 规则唯一标识
+    2. **name**: 规则名称
+    3. **version**: 版本号 (如 "1.0.0")
+    4. **description**: 规则描述
+    5. **module_mapping**: 模块映射规则，定义如何从需求中识别模块
+    6. **scenario_dimensions**: 场景维度列表，定义需要生成哪些类型的用例
+       - happy_path: 正常流
+       - invalid_input: 无效输入
+       - boundary: 边界值
+       - exception: 异常处理
+       - security: 安全相关
+       等
+    7. **testcase_template**: 用例字段模板，定义每个字段如何生成
+    8. **priority_rules**: 优先级分配规则
+    9. **relation_rules**: 用例关系规则(可选)
+    10. **scene_rules**: 场景规则
+    11. **output_format**: 输出格式配置
+
+    请确保生成的规则：
+    - 覆盖所有识别到的模块和功能
+    - 定义清晰的场景维度，涵盖正常、异常、边界等情况
+    - 优先级规则合理，核心功能为高优先级
+    - 字段模板完整，与数据库字段对齐
+
+    输出纯JSON格式，不要包含其他说明文字。
+
+  principles_section_template: |
+    ## 用例拆解原则：
+    {principles_content}
+
+  metric_section_template: |
+    ## 模块分类规则(Metric)：
+    {metric_content}
+
+# 用例生成Agent的提示词
+testcase_generator:
+  steps_prompt_template: |
+    请为以下测试场景生成详细的测试步骤。
+
+    功能：{feature_name}
+    描述：{feature_description}
+
+    流程：{flow_name}
+    流程类型：{flow_type}
+
+    场景维度：{dimension_name}
+
+    要求：
+    1. 生成清晰、可执行的测试步骤
+    2. 每个步骤要具体，包含操作对象和操作内容
+    3. 步骤数量控制在3-8步
+    4. 考虑实际测试场景的可操作性
+    5. 以JSON数组格式输出，例如：["步骤1", "步骤2", "步骤3"]
+
+    请直接输出JSON数组，不要包含其他说明。
+
+  expected_result_prompt_template: |
+    请为以下测试步骤生成预期结果。
+
+    功能：{feature_name}
+    流程：{flow_name}
+    场景：{dimension_name}
+
+    测试步骤：
+    {steps_formatted}
+
+    要求：
+    1. 预期结果要具体、可验证
+    2. 描述系统应该的行为和状态
+    3. 长度控制在100字以内
+    4. 考虑用户体验和系统反馈
+    5. 直接输出预期结果文本，不要包含"预期结果："等前缀
+
+    请输出：
+
+# 全局配置
+global:
+  # 模型参数默认值
+  default_temperature: 0.3
+  default_max_tokens: 4000
+
+  # 重试配置
+  max_retries: 3
+  retry_delay: 2.0
+
+  # 超时配置
+  default_timeout: 60
+
+  # JSON解析配置
+  validate_json: true
+  required_fields:
+    parsed_requirement: ["modules", "metadata"]
+    walkthrough_rule: ["rule_id", "scenario_dimensions"]
