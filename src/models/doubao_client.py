@@ -4,8 +4,11 @@ import os
 import logging
 from typing import List, Dict, Any, Optional
 from openai import OpenAI
+import requests.exceptions
 
 from .base import BaseModelClient, ModelResponse
+from ..utils.exceptions import ModelAPIError, ModelTimeoutError
+from ..utils.error_handler import safe_model_call
 
 logger = logging.getLogger(__name__)
 
@@ -68,40 +71,52 @@ class DoubaoClient(BaseModelClient):
         """
         model = model or self.default_model
 
-        try:
-            params = {
-                "model": model,
-                "messages": messages,
-                "temperature": temperature,
-                "stream": stream,
-            }
+        params = {
+            "model": model,
+            "messages": messages,
+            "temperature": temperature,
+            "stream": stream,
+        }
 
-            if max_tokens is not None:
-                params["max_tokens"] = max_tokens
+        if max_tokens is not None:
+            params["max_tokens"] = max_tokens
 
-            # Add any additional kwargs
-            params.update(kwargs)
+        # Add any additional kwargs
+        params.update(kwargs)
 
-            logger.debug(f"Calling Doubao chat completion with model={model}")
+        logger.debug(f"Calling Doubao chat completion with model={model}")
 
-            response = self.client.chat.completions.create(**params)
+        def _call():
+            try:
+                response = self.client.chat.completions.create(**params)
 
-            content = response.choices[0].message.content
-            usage = {
-                "prompt_tokens": response.usage.prompt_tokens,
-                "completion_tokens": response.usage.completion_tokens,
-                "total_tokens": response.usage.total_tokens,
-            } if response.usage else None
+                if not response.choices:
+                    raise ModelAPIError("No response choices returned from model")
 
-            return ModelResponse(
-                content=content,
-                model=model,
-                usage=usage
-            )
+                content = response.choices[0].message.content
+                usage = {
+                    "prompt_tokens": response.usage.prompt_tokens,
+                    "completion_tokens": response.usage.completion_tokens,
+                    "total_tokens": response.usage.total_tokens,
+                } if response.usage else None
 
-        except Exception as e:
-            logger.error(f"Error calling Doubao chat completion: {e}")
-            raise
+                return ModelResponse(
+                    content=content,
+                    model=model,
+                    usage=usage
+                )
+
+            except TimeoutError as e:
+                raise ModelTimeoutError(f"Request timeout: {e}")
+            except requests.exceptions.Timeout as e:
+                raise ModelTimeoutError(f"Request timeout: {e}")
+            except requests.exceptions.RequestException as e:
+                raise ModelAPIError(f"API request failed: {e}")
+            except Exception as e:
+                logger.error(f"Unexpected error in Doubao call: {e}")
+                raise ModelAPIError(f"Model call failed: {str(e)}")
+
+        return safe_model_call(_call, max_retries=3, retry_delay=2.0)
 
     def multimodal_completion(
         self,
