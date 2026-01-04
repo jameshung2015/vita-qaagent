@@ -28,6 +28,7 @@ from src.models.model_factory import get_default_client
 from src.agents.requirement_parser import RequirementParser, ParsedRequirement
 from src.agents.rule_generator import RuleGenerator
 from src.agents.testcase_generator import TestCaseGenerator
+from src.agents.es_similarity_agent import ESSimilarityAgent
 from src.entities import MaterializedBundle, materialize_generation_outputs
 from src.utils.logger import setup_logger
 from src.utils.file_utils import (
@@ -842,6 +843,64 @@ def generate_markdown_summary(
             )
 
     return "\n".join(lines)
+
+
+@app.command()
+def search(
+    query: Optional[str] = typer.Option(None, "--query", "-q", help="文本查询，匹配标题/步骤/期望"),
+    case_id: Optional[str] = typer.Option(None, "--case-id", help="基于已有case_id进行相似检索"),
+    project_name: Optional[str] = typer.Option(None, "--project", help="用于本地fallback定位es_docs"),
+    output_dir: str = typer.Option("outputs", "--output", "-o", help="输出目录，用于保存搜索报告"),
+    top_k: int = typer.Option(5, "--top-k", help="返回TopK相似用例"),
+):
+    """在ES中检索相似用例并对比差异；无ES时使用本地es_docs回退。"""
+    load_env()
+
+    if not query and not case_id:
+        console.print("[bold red]✗[/bold red] 请提供 --query 或 --case-id")
+        raise typer.Exit(code=1)
+
+    console.print("\n[bold cyan]VITA QA Agent - 相似用例检索[/bold cyan]\n")
+
+    agent = ESSimilarityAgent(project_name=project_name)
+
+    try:
+        result = agent.search_similar(query_text=query, case_id=case_id, top_k=top_k)
+    except Exception as e:
+        console.print(f"\n[bold red]✗ 检索失败: {e}[/bold red]")
+        raise typer.Exit(code=1)
+
+    # Render summary
+    console.print(f"[green]✓[/green] 检索完成，返回 {len(result['results'])} 条相似用例")
+    for i, diff in enumerate(result["diffs"], 1):
+        console.print(
+            f"  {i}. [bold]{diff['case_id']}[/bold] | 分数: {diff.get('score')} | 标题相似度: {diff['title_similarity']}"
+        )
+
+    # Save JSON and Markdown report
+    out_dir = Path(output_dir) / "reports"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    json_path = out_dir / generate_output_filename(prefix="search_results", suffix="json", project_name=project_name)
+    md_path = out_dir / generate_output_filename(prefix="search_summary", suffix="md", project_name=project_name)
+
+    write_json_file(str(json_path), result)
+
+    lines = [
+        f"# 相似用例检索报告 - {project_name or 'N/A'}",
+        "",
+        f"查询: {result['query']}",
+        "",
+        "| 排名 | 用例ID | 标题 | 分数 | 标题相似度 | 步骤相似度 | 期望相似度 |",
+        "|------|--------|------|------|------------|------------|------------|",
+    ]
+    for idx, d in enumerate(result["diffs"], 1):
+        lines.append(
+            f"| {idx} | {d['case_id']} | {d.get('title','')} | {d.get('score','')} | {d['title_similarity']} | {d['steps_similarity']} | {d['expected_similarity']} |"
+        )
+    write_markdown_file(str(md_path), "\n".join(lines))
+
+    console.print(f"[green]✓[/green] 报告已保存: {md_path}")
+    console.print(f"[green]✓[/green] 详细结果: {json_path}")
 
 
 @app.command()
